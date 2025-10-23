@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>債券單張搜尋工具</title>
+
+  <!-- 🚫 告訴搜尋引擎不要收錄這個頁面（保密用途） -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="googlebot" content="noindex, nofollow">
+  <meta name="bingbot" content="noindex, nofollow">
+
+  <!-- 🎨 ======================= [CSS 區塊] =======================
+       CSS（Cascading Style Sheets）是「樣式表」，
+       用來控制頁面的外觀：顏色、字型、間距、排版、按鈕樣式等等。
+       ========================================================= -->
+  <style>
+    /* 設定整體頁面背景、字型、文字顏色 */
+    body {
+      font-family: "Segoe UI", "Noto Sans TC", system-ui, -apple-system, sans-serif;
+      background: #f7f9fb; /* 淺灰藍背景 */
+      color: #333;          /* 主要文字顏色 */
+      margin: 0;
+      padding: 0;
+    }
+
+    /* 主要內容外框容器 */
+    .container {
+      max-width: 760px;                      /* 頁面寬度上限 */
+      margin: 80px auto;                     /* 垂直置中 */
+      background: #fff;                      /* 白底 */
+      border-radius: 16px;                   /* 圓角邊框 */
+      box-shadow: 0 6px 20px rgba(0,0,0,0.08);/* 柔和陰影 */
+      padding: 40px 48px;                    /* 內距 */
+    }
+
+    /* 標題樣式 */
+    h2 {
+      text-align: center;
+      color: #1a365d;
+      font-size: 1.6em;
+      margin-bottom: 32px;
+    }
+
+    /* 搜尋列（輸入框＋按鈕）的橫向排列 */
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* 搜尋框的外觀 */
+    input {
+      flex: 1;                     /* 讓輸入框自動佔滿寬度 */
+      padding: 12px 16px;
+      border: 1px solid #cbd5e0;
+      border-radius: 8px;
+      transition: all 0.25s ease;  /* 聚焦時有動畫 */
+    }
+
+    /* 當使用者點選輸入框時的效果（藍色外框） */
+    input:focus {
+      border-color: #3182ce;
+      box-shadow: 0 0 0 3px rgba(49,130,206,0.2);
+      outline: none;
+    }
+
+    /* 搜尋按鈕外觀 */
+    button {
+      padding: 11px 25px;
+      background: #2b6cb0;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    button:hover {
+      background: #093974; /* 滑鼠移上去會變深色 */
+    }
+
+    /* 顯示狀態資訊（例如：資料載入中、找到幾筆） */
+    .status {
+      margin-top: 16px;
+      color: #555;
+      font-size: 0.95em;
+    }
+
+    /* 搜尋結果的卡片樣式 */
+    .result {
+      background: #f9fafb;
+      margin-top: 16px;
+      padding: 14px 18px;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      transition: background 0.2s ease;
+    }
+
+    .result:hover {
+      background: #edf2f7; /* 滑鼠移上去變亮一點 */
+    }
+
+    /* 頁尾樣式 */
+    footer {
+      text-align: center;
+      color: #718096;
+      font-size: 0.85em;
+      margin-top: 48px;
+    }
+
+    /* 📱 手機版響應式：畫面窄時自動縮排 */
+    @media (max-width: 600px) {
+      .container {
+        margin: 32px 16px;
+        padding: 28px;
+      }
+    }
+  </style>
+</head>
+
+<!-- 🧱 ======================= [HTML 區塊] =======================
+     HTML（HyperText Markup Language）是整個頁面的「骨架」。
+     它決定有哪些東西要出現在畫面上。
+     ========================================================== -->
+<body>
+  <div class="container">
+    <!-- 主標題 -->
+    <h2>🔍 債券單張搜尋工具</h2>
+
+    <!-- 搜尋列：輸入框 + 按鈕 -->
+    <div class="row">
+      <!-- 輸入框 -->
+      <input id="search" placeholder="輸入標的名稱或代號，例如：3M、MMM…" />
+      <!-- 按鈕 -->
+      <button id="btn">搜尋</button>
+    </div>
+
+    <!-- 顯示狀態區（例如「資料載入完成」或「共找到 X 筆」） -->
+    <div class="status" id="status">正在載入資料…</div>
+
+    <!-- 搜尋結果顯示區 -->
+    <div id="results"></div>
+
+    <!-- 頁尾 -->
+    <footer>© 台新證券 B2B Team 製作</footer>
+  </div>
+
+  <!-- ⚙️ ======================= [JavaScript 區塊] =======================
+       JavaScript（JS）是用來讓頁面「動起來」的程式邏輯。
+       它負責：
+         ✅ 從 index.json 載入資料
+         ✅ 接收搜尋關鍵字
+         ✅ 篩選出符合的結果
+         ✅ 把結果顯示到網頁上
+       =============================================================== -->
+  <script>
+    /* --- 定義變數（用來記錄狀態） --- */
+    let data = [];      // 儲存從 index.json 載入的債券資料
+    let loaded = false; // 確認資料是否成功載入
+
+    /* --- 1️⃣ 載入 index.json 檔案 --- */
+    fetch('index.json')                 // 向伺服器請求 index.json
+      .then(r => r.json())              // 把回傳的資料轉成 JSON 格式
+      .then(d => {                      // 成功讀取後執行這段
+        data = d;                       // 儲存資料到 data 陣列
+        loaded = true;                  // 標記為「已載入」
+        document.getElementById('status').textContent =
+          `資料載入完成（共 ${data.length} 筆）。`;
+      })
+      .catch(() => {                    // 如果載入失敗（例如檔案不存在）
+        loaded = false;
+        document.getElementById('status').textContent =
+          '⚠️ 資料載入失敗，請確認 index.json 是否存在。';
+      });
+
+    /* --- 2️⃣ 定義搜尋功能（當按下搜尋或 Enter 時會觸發） --- */
+    function searchNow() {
+      const input = document.getElementById('search'); // 取得輸入框元素
+      const q = input.value.trim().toLowerCase();      // 把輸入文字去空白轉小寫
+      const box = document.getElementById('results');  // 搜尋結果容器
+      const status = document.getElementById('status');// 狀態列
+
+      // 若資料未載入就提示
+      if (!loaded) {
+        box.innerHTML = '<p>資料未載入。</p>';
+        return;
+      }
+
+      // 若輸入是空的，提示使用者輸入關鍵字
+      if (!q) {
+        box.innerHTML = '<p>請輸入標的名稱或代號。</p>';
+        return;
+      }
+
+      // 🔎 使用 filter() 篩選符合條件的資料
+      const res = data.filter(x => {
+        const name = (x.name || '').toLowerCase();
+        const aliases = (x.alias || []).map(a => (a || '').toLowerCase());
+        // 只要主名稱或別名包含輸入的字串就算符合
+        return name.includes(q) || aliases.some(a => a.includes(q));
+      });
+
+      // 根據結果筆數更新畫面
+      if (res.length > 0) {
+        status.textContent = `根據搜尋，共有 ${res.length} 筆符合。`;
+
+        // 用 map() 產生 HTML，並組合成一段完整的結果
+        box.innerHTML = res.map(r => `
+          <div class="result">
+            <b>${r.name}</b><br>
+            📄 <a href="${r.url}" target="_blank" rel="noopener">點此開啟檔案</a>
+          </div>
+        `).join('');
+      } else {
+        status.textContent = '根據搜尋，沒有找到符合的結果。';
+        box.innerHTML = '<p>— 沒有找到結果 —</p>';
+      }
+    }
+
+    /* --- 3️⃣ 綁定按鈕與鍵盤事件 --- */
+    document.getElementById('btn').addEventListener('click', searchNow); // 按下按鈕會搜尋
+    document.getElementById('search').addEventListener('keydown', e => {
+      if (e.key === 'Enter') searchNow(); // 按 Enter 也會搜尋
+    });
+
+    /* --- 4️⃣ 支援 Excel 超連結的自動搜尋功能 ---
+       如果網址中帶有 ?q=xxx，例如：
+       http://localhost:5500/?q=KSA
+       程式會自動：
+         (1) 把 KSA 填入輸入框
+         (2) 等 index.json 載入完成後自動執行搜尋
+    */
+    const params = new URLSearchParams(location.search);
+    const preset = params.get('q'); // 讀取網址的 ?q 參數
+    if (preset) {
+      const input = document.getElementById('search');
+      input.value = decodeURIComponent(preset); // 解碼並填入輸入框
+      window.searchNow = searchNow;
+      const autoSearch = setInterval(() => {
+        if (loaded) {
+          clearInterval(autoSearch); // 停止重複檢查
+          searchNow();                // 執行搜尋
+        }
+      }, 200); // 每 0.2 秒檢查一次是否載入完成
+    }
+  </script>
+</body>
+</html>
