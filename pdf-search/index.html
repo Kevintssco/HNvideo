@@ -154,95 +154,131 @@
          ✅ 把結果顯示到網頁上
        =============================================================== -->
   <script>
-    /* --- 定義變數（用來記錄狀態） --- */
-    let data = [];      // 儲存從 index.json 載入的債券資料
-    let loaded = false; // 確認資料是否成功載入
+  let data = [];
+  let loaded = false;
 
-    /* --- 1️⃣ 載入 index.json 檔案 --- */
-    fetch('index.json')                 // 向伺服器請求 index.json
-      .then(r => r.json())              // 把回傳的資料轉成 JSON 格式
-      .then(d => {                      // 成功讀取後執行這段
-        data = d;                       // 儲存資料到 data 陣列
-        loaded = true;                  // 標記為「已載入」
-        document.getElementById('status').textContent =
-          `資料載入完成（共 ${data.length} 筆）。`;
-      })
-      .catch(() => {                    // 如果載入失敗（例如檔案不存在）
-        loaded = false;
-        document.getElementById('status').textContent =
-          '⚠️ 資料載入失敗，請確認 index.json 是否存在。';
-      });
+  function renderList(list, message) {
+    const box = document.getElementById('results');
+    const status = document.getElementById('status');
 
-    /* --- 2️⃣ 定義搜尋功能（當按下搜尋或 Enter 時會觸發） --- */
-    function searchNow() {
-      const input = document.getElementById('search'); // 取得輸入框元素
-      const q = input.value.trim().toLowerCase();      // 把輸入文字去空白轉小寫
-      const box = document.getElementById('results');  // 搜尋結果容器
-      const status = document.getElementById('status');// 狀態列
-
-      // 若資料未載入就提示
-      if (!loaded) {
-        box.innerHTML = '<p>資料未載入。</p>';
-        return;
-      }
-
-      // 若輸入是空的，提示使用者輸入關鍵字
-      if (!q) {
-        box.innerHTML = '<p>請輸入標的名稱或代號。</p>';
-        return;
-      }
-
-      // 🔎 使用 filter() 篩選符合條件的資料
-      const res = data.filter(x => {
-        const name = (x.name || '').toLowerCase();
-        const aliases = (x.alias || []).map(a => (a || '').toLowerCase());
-        // 只要主名稱或別名包含輸入的字串就算符合
-        return name.includes(q) || aliases.some(a => a.includes(q));
-      });
-
-      // 根據結果筆數更新畫面
-      if (res.length > 0) {
-        status.textContent = `根據搜尋，共有 ${res.length} 筆符合。`;
-
-        // 用 map() 產生 HTML，並組合成一段完整的結果
-        box.innerHTML = res.map(r => `
-          <div class="result">
-            <b>${r.name}</b><br>
-            📄 <a href="${r.url}" target="_blank" rel="noopener">點此開啟檔案</a>
-          </div>
-        `).join('');
-      } else {
-        status.textContent = '根據搜尋，沒有找到符合的結果。';
-        box.innerHTML = '<p>— 沒有找到結果 —</p>';
-      }
+    if (!list || list.length === 0) {
+      status.textContent = message || '— 沒有找到結果 —';
+      box.innerHTML = '<p>— 沒有找到結果 —</p>';
+      return;
     }
 
-    /* --- 3️⃣ 綁定按鈕與鍵盤事件 --- */
-    document.getElementById('btn').addEventListener('click', searchNow); // 按下按鈕會搜尋
-    document.getElementById('search').addEventListener('keydown', e => {
-      if (e.key === 'Enter') searchNow(); // 按 Enter 也會搜尋
+    status.textContent = message || `共 ${list.length} 筆。`;
+    box.innerHTML = list.map(r => `
+      <div class="result">
+        <b>${r.name || '(未命名)'}</b><br>
+        📄 <a href="${r.url || '#'}" target="_blank" rel="noopener">點此開啟檔案</a>
+      </div>
+    `).join('');
+  }
+
+  async function loadData() {
+    const status = document.getElementById('status');
+
+    // 1) 先嘗試抓 index.json（適用 http/https 伺服器）
+    try {
+      const res = await fetch('index.json', { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const d = await res.json();
+      return normalizeData(d);
+    } catch (err) {
+      console.warn('[index.json] 載入失敗，改用內嵌備援資料：', err);
+      // 2) 內嵌備援（適用 file:// 或沒有伺服器時）
+      const seed = document.getElementById('seed');
+      if (seed?.textContent?.trim()) {
+        try {
+          const d = JSON.parse(seed.textContent);
+          status.textContent = '⚠️ 未能讀取 index.json，已改用頁面內嵌的備援資料。';
+          return normalizeData(d);
+        } catch (e) {
+          throw new Error('內嵌備援資料格式不是有效 JSON。');
+        }
+      }
+      throw new Error('找不到 index.json 且沒有內嵌備援資料。');
+    }
+  }
+
+  function normalizeData(d) {
+    const arr = Array.isArray(d) ? d : [];
+    const out = arr.map(x => ({
+      name: (x && x.name) || '',
+      url: (x && x.url) || '#',
+      alias: Array.isArray(x?.alias) ? x.alias : []
+    }));
+    out.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+    return out;
+  }
+
+  function searchNow() {
+    const input = document.getElementById('search');
+    const q = (input.value || '').trim().toLowerCase();
+
+    if (!loaded) {
+      renderList([], '資料未載入。');
+      return;
+    }
+
+    if (!q) {
+      renderList(data, `目前顯示全部（${data.length} 筆）`);
+      return;
+    }
+
+    const res = data.filter(x => {
+      const name = (x.name || '').toLowerCase();
+      const aliases = (x.alias || []).map(a => (a || '').toLowerCase());
+      return name.includes(q) || aliases.some(a => a.includes(q));
     });
 
-    /* --- 4️⃣ 支援 Excel 超連結的自動搜尋功能 ---
-       如果網址中帶有 ?q=xxx，例如：
-       http://localhost:5500/?q=KSA
-       程式會自動：
-         (1) 把 KSA 填入輸入框
-         (2) 等 index.json 載入完成後自動執行搜尋
-    */
-    const params = new URLSearchParams(location.search);
-    const preset = params.get('q'); // 讀取網址的 ?q 參數
-    if (preset) {
-      const input = document.getElementById('search');
-      input.value = decodeURIComponent(preset); // 解碼並填入輸入框
-      window.searchNow = searchNow;
-      const autoSearch = setInterval(() => {
-        if (loaded) {
-          clearInterval(autoSearch); // 停止重複檢查
-          searchNow();                // 執行搜尋
-        }
-      }, 200); // 每 0.2 秒檢查一次是否載入完成
+    renderList(res, `根據搜尋，共有 ${res.length} 筆符合。`);
+  }
+
+  // 綁定事件
+  document.getElementById('btn').addEventListener('click', searchNow);
+  document.getElementById('search').addEventListener('keydown', e => {
+    if (e.key === 'Enter') searchNow();
+  });
+  document.getElementById('search').addEventListener('input', e => {
+    if (e.target.value.trim() === '' && loaded) {
+      renderList(data, `目前顯示全部（${data.length} 筆）`);
     }
-  </script>
+  });
+
+  // 支援 ?q=
+  const params = new URLSearchParams(location.search);
+  const preset = params.get('q');
+  if (preset) {
+    document.getElementById('search').value = decodeURIComponent(preset);
+  }
+
+  // 啟動：載入資料 → 初始渲染（全部） → 若有 ?q= 再做一次搜尋
+  (async () => {
+    const status = document.getElementById('status');
+    try {
+      data = await loadData();
+      loaded = true;
+      status.textContent = `資料載入完成（共 ${data.length} 筆）。`;
+      renderList(data, `目前顯示全部（${data.length} 筆）`);
+      if (preset) searchNow();
+    } catch (err) {
+      loaded = false;
+      console.error(err);
+      status.textContent = `❌ 資料載入失敗：${err.message}`;
+      document.getElementById('results').innerHTML = '<p>請確認 index.json 位置/格式，或使用內嵌備援資料。</p>';
+    }
+  })();
+</script>
+
+<!-- ✅ 內嵌備援資料（請換成你的真實清單；不需要就留空陣列 []） -->
+<script id="seed" type="application/json">
+[
+  { "name": "3M (MMM) 公司簡報", "url": "docs/MMM.pdf", "alias": ["MMM","3M","明尼蘇達礦業"] },
+  { "name": "Verizon (VZ) 債券單張", "url": "docs/VZ.pdf",  "alias": ["VZ","Verizon","威瑞森"] }
+]
+</script>
+
 </body>
 </html>
